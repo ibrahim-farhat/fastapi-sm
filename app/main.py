@@ -8,13 +8,37 @@ from typing import Optional     # for Optional class
 
 from random import randrange    # to generate unique id for each new post
 
+import psycopg2                                 # to deal with postgres database
+
+from psycopg2.extras import RealDictCursor      # to deal with postgres database
+
+import time                     # to make delays
+
+
+# initiate the fastapi application
 app = FastAPI()
 
+
+# connect to the postgres database
+while True:
+    try:
+        conn = psycopg2.connect(host='localhost', database='fastapi', user='postgres', password='28122000', cursor_factory=RealDictCursor)
+        cursor = conn.cursor()
+        print("Database was successfully connected.")
+        break
+    
+    except Exception as error:
+        print("Database can't be connected!")
+        print("Error: ", error)
+        time.sleep(2)
+
+# create a class for posts
 class Post(BaseModel):
     title: str
     content: str
     published: bool = True
-    rating: Optional[int] = None
+    # rating: Optional[int] = None      # was for demonstration purposes
+
 
 my_posts = [{"title": "frist post", "content": "content of first post", "published": True, "rating": None, "id": 1}, 
             {"title": "second post", "content": "content of second post", "published": True, "rating": None, "id": 2},
@@ -37,95 +61,84 @@ def find_post_index(id):
 # get all posts
 @app.get("/posts", status_code=status.HTTP_200_OK)
 def list_posts():
-    return my_posts
+    # get all the posts from the database
+    cursor.execute("SELECT * FROM posts")
+    posts = cursor.fetchall()
+
+    # return all the posts to the client
+    return {"data": posts}
 
 # create new post
 @app.post("/posts", status_code=status.HTTP_201_CREATED)
-# def create_post(payLoad: dict = Body(...)):           # old version, without using pydantic library to validate the post schema
 def create_post(new_post: Post):
     print(new_post)
     
-    new_post_dict = new_post.dict()
-
-    # generate an id for the new post
-    new_post_dict["id"] = randrange(0, 1000000)
-
-    # append the new post to my database
-    my_posts.append(new_post_dict)
+    cursor.execute("INSERT INTO posts (title, content, published) VALUES (%s, %s, %s) RETURNING *", (new_post.title, new_post.content, new_post.published))
+    new_post_dict = cursor.fetchone()
+    conn.commit()
 
     # debug purpose
     print(new_post_dict)
 
     # return the new post that was created
-    return new_post_dict
+    return {"data": new_post_dict}
 
 # get specific post
 @app.get("/posts/{id}", status_code=status.HTTP_200_OK)
 def get_post(id: int):
     
     # search for the post within our database
-    search_index = find_post_index(id)
+    cursor.execute("SELECT * FROM posts WHERE id = %s", (str(id), ))
+    database_response = cursor.fetchone()
 
     # validate that the post is existing
-    if search_index == None:
+    if not database_response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with {id} was not found!")
-        # return Response(status_code=status.HTTP_404_NOT_FOUND)        # another approach without a detail message
     
     # debug purpose
-    print(my_posts[search_index])
+    print(database_response)
 
     # things are going well, return the post
-    return my_posts[search_index]
+    return {"data": database_response}
 
 # update specific post
 @app.put("/posts/{id}", status_code=status.HTTP_200_OK)
 def update_post(id: int, post: Post):
-    # search for the post within our database
-    search_index = find_post_index(id)
 
+    # search for the post within our database, and update it if it is found
+    cursor.execute("UPDATE posts SET title = %s, content = %s, published = %s WHERE id = %s RETURNING *", 
+                   (post.title, post.content, post.published, str(id)))
+    database_response = cursor.fetchone()
+    
     # validate that the post is existing
-    if search_index == None:
+    if not database_response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id {id} was not found!")
     
-    # debug purpose
-    print(my_posts[search_index])
-
     # synch our database with the updated post
-    updated_post = post.model_dump()
-    updated_post["id"] = my_posts[search_index]["id"]
-    my_posts[search_index] = updated_post
+    conn.commit()
 
+    # debug purpose
+    print(database_response)
+    
     # things are going well, return the post after update
-    return my_posts[search_index]
+    return {"data": database_response}
 
 # delete specific post
 @app.delete("/posts/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_post(id: int):
-    # search for the post within our database
-    search_index = find_post_index(id)
+    # search for the post within our database, and delete it if it is found
+    cursor.execute("DELETE FROM posts WHERE id = %s RETURNING *", (str(id), ))
+    database_response = cursor.fetchone()
 
     # validate that the post is existing
-    if search_index == None:
+    if not database_response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id {id} was not found!")
     
-    # delete the post
-    my_posts.pop(search_index)
+    # synch our database with the updated post
+    conn.commit()
 
     # debug purpose
-    print(my_posts[search_index])
+    print(database_response)
 
     # things are going well, return the response
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# note:
-# if you make 2 instances of the same path with the same method,
-# your server will go well and the first instance only will be took in consideration.
-
-# @app.get("/")
-# async def root():
-#     return {"message": "Hello World"}
-
-# @app.get("/")
-# async def root1():
-#     return {"message": "Hello Body"}
