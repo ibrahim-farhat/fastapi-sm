@@ -5,6 +5,8 @@ from database import engine, get_db
 import models
 from routers import posts, users, auth
 
+from config import settings
+
 # validate and create the db according to the models we stablished
 models.Base.metadata.create_all(bind=engine)
 
