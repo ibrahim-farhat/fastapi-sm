@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Response, status, HTTPException, Depends, APIRouter
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 
 import schemas, models, oauth2
@@ -8,12 +9,12 @@ from database import get_db
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
 # get all posts
-@router.get("/", status_code=status.HTTP_200_OK, response_model=List[schemas.Post])
+@router.get("/", status_code=status.HTTP_200_OK, response_model=List[schemas.PostOut])
 def list_posts(db: Session = Depends(get_db), current_user: models.User = Depends(oauth2.get_current_user), limit: int = 10, skip: int = 0, search: Optional[str] = ""):
     
-    # get all the posts from the database
-    posts = db.query(models.Post).filter(models.Post.title.contains(search)).limit(limit).offset(skip).all()
-    
+    # get all the posts from the database, joining with votes table to count number of votes for each post
+    posts = db.query(models.Post, func.count(models.Vote.post_id).label("votes")).join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True).group_by(models.Post.id).filter(models.Post.title.contains(search)).limit(limit).offset(skip).all()
+
     # return all the posts to the client
     return posts
 
@@ -34,12 +35,12 @@ def create_post(post: schemas.PostCreate, db: Session = Depends(get_db), current
     return new_post
 
 # get specific post
-@router.get("/{id}", status_code=status.HTTP_200_OK, response_model=schemas.Post)
+@router.get("/{id}", status_code=status.HTTP_200_OK, response_model=schemas.PostOut)
 def get_post(id: int, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
     
     # search for the post within our database, if it exists, return it
-    db_response = db.query(models.Post).filter(models.Post.id == id).first()
-    
+    db_response = db.query(models.Post, func.count(models.Vote.post_id).label("votes")).join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True).group_by(models.Post.id).filter(models.Post.id == id).first()
+
     # validate that the post is existing
     if not db_response:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with {id} was not found!")
@@ -48,7 +49,7 @@ def get_post(id: int, db: Session = Depends(get_db), current_user: int = Depends
     return db_response
 
 # update specific post
-@router.put("/{id}", status_code=status.HTTP_200_OK, response_model=schemas.Post)
+@router.put("/{id}", status_code=status.HTTP_200_OK, response_model=schemas.PostOut)
 def update_post(id: int, post: schemas.PostCreate, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
 
     # compose the query that gets the post with its id
@@ -69,7 +70,7 @@ def update_post(id: int, post: schemas.PostCreate, db: Session = Depends(get_db)
     post_query.update(post.dict(), synchronize_session=False)
     db.commit()
     
-    updated_post = post_query.first()
+    updated_post = db.query(models.Post, func.count(models.Vote.post_id).label("votes")).join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True).group_by(models.Post.id).filter(models.Post.id == id).first()
     
     # things are going well, return the post after update
     return updated_post

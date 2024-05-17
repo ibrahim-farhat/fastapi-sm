@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
-from database import engine, get_db
+from database import engine
 
 import models
-from routers import posts, users, auth
+from routers import posts, users, auth, votes
 
 from config import settings
 
@@ -16,3 +16,4 @@ app = FastAPI()
 app.include_router(posts.router)
 app.include_router(users.router)
 app.include_router(auth.router)
+app.include_router(votes.router)
