@@ -16,6 +16,7 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     created_at: datetime
+    phone_number:str
 
     class Config:
         from_attributes = True
@@ -40,6 +41,7 @@ class PostOut(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
+    phone_number: str
     password: str
 
 
